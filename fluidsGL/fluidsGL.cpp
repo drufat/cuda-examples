@@ -1,27 +1,41 @@
+/*
+ * Copyright 1993-2014 NVIDIA Corporation.  All rights reserved.
+ *
+ * Please refer to the NVIDIA end user license agreement (EULA) associated
+ * with this source code for terms and conditions that govern your use of
+ * this software. Any use, reproduction, disclosure, or distribution of
+ * this software and related documentation outside the terms of the EULA
+ * is strictly prohibited.
+ *
+ */
 // OpenGL Graphics includes
-#define GL_GLEXT_PROTOTYPES
-#include <GL/glut.h>
+#include <GL/glew.h>
 
 // Includes
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <algorithm>
 
-// CUDA Libraries
+// CUDA standard includes
+#include <cuda_runtime.h>
 #include <cuda_gl_interop.h>
-#include <cuda_runtime_api.h>
+
+// CUDA FFT Libraries
 #include <cufft.h>
+
+#if defined(__APPLE__) || defined(MACOSX)
+#include <GLUT/glut.h>
+#else
+#include <GL/freeglut.h>
+#endif
+
+#include "helper_timer.h"
 
 #include "defines.h"
 #include "fluidsGL_kernels.h"
 
-#define MAX_EPSILON_ERROR 1.0f
-
 const char *sSDKname = "fluidsGL";
-
-#define getmin(a,b) (a < b ? a : b)
-#define getmax(a,b) (a > b ? a : b)
-
 // CUDA example code that implements the frequency space version of
 // Jos Stam's paper 'Stable Fluids' in 2D. This application uses the
 // CUDA FFT library (CUFFT) to perform velocity diffusion and to
@@ -36,84 +50,87 @@ void reshape(int x, int y);
 // CUFFT plan handle
 cufftHandle planr2c;
 cufftHandle planc2r;
-static cData *vxfield = NULL;
-static cData *vyfield = NULL;
 
-cData *hvfield = NULL;
-cData *dvfield = NULL;
-static int wWidth = getmax(512,DIM);
-static int wHeight = getmax(512,DIM);
+static float2 *vxfield = NULL;
+static float2 *vyfield = NULL;
 
-static int clicked = 0;
+float2 *hvfield = NULL;
+float2 *dvfield = NULL;
+static int wWidth  = std::max(512, DIM);
+static int wHeight = std::max(512, DIM);
+
+static int clicked  = 0;
 static int fpsCount = 0;
 static int fpsLimit = 1;
-unsigned int timer;
+StopWatchInterface *timer = NULL;
 
 // Particle data
-GLuint vbo = 0;                 // OpenGL vertex buffer object
-struct cudaGraphicsResource *cuda_vbo_resource; // handles OpenGL-CUDA exchange
-static cData *particles = NULL; // particle positions in host memory
+static GLuint vbo = 0;                 // OpenGL vertex buffer object
+static struct cudaGraphicsResource *cuda_vbo_resource; // handles OpenGL-CUDA exchange
+static float2 *particles = NULL; // particle positions in host memory
 static int lastx = 0, lasty = 0;
 
 // Texture pitch
-size_t tPitch = 0; // Now this is compatible with gcc in 64-bit
+size_t tPitch = 0;
 
-bool g_bQAReadback     = false;
-bool g_bQAAddTestForce = true;
-int  g_iFrameToCompare = 100;
-int  g_TotalErrors     = 0;
-
-extern "C" void addForces(cData *v, int dx, int dy, int spx, int spy, float fx, float fy, int r);
-extern "C" void advectVelocity(cData *v, float *vx, float *vy, int dx, int pdx, int dy, float dt);
-extern "C" void diffuseProject(cData *vx, cData *vy, int dx, int dy, float dt, float visc);
-extern "C" void updateVelocity(cData *v, float *vx, float *vy, int dx, int pdx, int dy);
-extern "C" void advectParticles(GLuint vbo, cData *v, int dx, int dy, float dt);
+bool g_bExitESC = false;
 
 void simulateFluids(void)
 {
     // simulate fluid
-    advectVelocity(dvfield, (float*)vxfield, (float*)vyfield, DIM, RPADW, DIM, DT);
-    diffuseProject(vxfield, vyfield, CPADW, DIM, DT, VIS);
-    updateVelocity(dvfield, (float*)vxfield, (float*)vyfield, DIM, RPADW, DIM);
-    advectParticles(vbo, dvfield, DIM, DIM, DT);
+    advectVelocity(dvfield, (float *)vxfield, (float *)vyfield, DIM, RPADW, DIM, DT);
+    diffuseProject(vxfield, vyfield, CPADW, DIM, DT, VIS,
+                   planr2c, planc2r);
+    updateVelocity(dvfield, (float *)vxfield, (float *)vyfield, DIM, RPADW, DIM);
+    advectParticles(cuda_vbo_resource, dvfield, DIM, DIM, DT);
 }
 
-void display(void) {
 
+void display(void)
+{
+
+    sdkStartTimer(&timer);
     simulateFluids();
 
-    // render points from vertex buffer
+    // render points
     glClear(GL_COLOR_BUFFER_BIT);
-    glColor4f(0,1,0,0.5f); glPointSize(1);
+    glClearColor(1, 1, 1, 1.0f);
+    glColor4f(0, 0, 1, 0.5f);
+    glPointSize(1);
     glEnable(GL_POINT_SMOOTH);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnableClientState(GL_VERTEX_ARRAY);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
-    glBindBufferARB(GL_ARRAY_BUFFER_ARB, vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glVertexPointer(2, GL_FLOAT, 0, NULL);
     glDrawArrays(GL_POINTS, 0, DS);
-    glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
     glDisable(GL_TEXTURE_2D);
 
     // Finish timing before swap buffers to avoid refresh sync
+    sdkStopTimer(&timer);
     glutSwapBuffers();
 
-    //    fpsCount++;
-    //    if (fpsCount == fpsLimit) {
-    //        char fps[256];
-    //        float ifps = 100.0;
-    //        sprintf(fps, "Cuda/GL Stable Fluids (%d x %d): %3.1f fps", DIM, DIM, ifps);
-    //        glutSetWindowTitle(fps);
-    //        fpsCount = 0;
-    //        fpsLimit = (int)getmax(ifps, 1.f);
-    //    }
+    fpsCount++;
+
+    if (fpsCount == fpsLimit)
+    {
+        char fps[256];
+        float ifps = 1.f / (sdkGetAverageTimerValue(&timer) / 1000.f);
+        sprintf(fps, "Cuda/GL Stable Fluids (%d x %d): %3.1f fps", DIM, DIM, ifps);
+        glutSetWindowTitle(fps);
+        fpsCount = 0;
+        fpsLimit = (int)std::max(ifps, 1.f);
+        sdkResetTimer(&timer);
+    }
 
     glutPostRedisplay();
 }
+
 
 // very simple von neumann middle-square prng.  can't use rand() in -qatest
 // mode because its implementation varies across platforms which makes testing
@@ -122,69 +139,76 @@ float myrand(void)
 {
     static int seed = 72191;
     char sq[22];
-
-    if (g_bQAReadback) {
-        seed *= seed;
-        sprintf(sq, "%010d", seed);
-        // pull the middle 5 digits out of sq
-        sq[8] = 0;
-        seed = atoi(&sq[3]);
-
-        return seed/99999.f;
-    } else {
-        return rand()/(float)RAND_MAX;
-    }
+    return rand()/(float)RAND_MAX;
 }
 
-void initParticles(cData *p, int dx, int dy) {
+void initParticles(float2 *p, int dx, int dy)
+{
     int i, j;
-    for (i = 0; i < dy; i++) {
-        for (j = 0; j < dx; j++) {
+
+    for (i = 0; i < dy; i++)
+    {
+        for (j = 0; j < dx; j++)
+        {
             p[i*dx+j].x = (j+0.5f+(myrand() - 0.5f))/dx;
             p[i*dx+j].y = (i+0.5f+(myrand() - 0.5f))/dy;
         }
     }
 }
 
-void keyboard( unsigned char key, int x, int y) {
-    switch( key) {
+void keyboard(unsigned char key, int x, int y)
+{
+    switch (key)
+    {
     case 27:
-        exit (0);
+        g_bExitESC = true;
+#if defined (__APPLE__) || defined(MACOSX)
+        exit(EXIT_SUCCESS);
+#else
+        glutDestroyWindow(glutGetWindow());
+        return;
+#endif
         break;
+
     case 'r':
-        memset(hvfield, 0, sizeof(cData) * DS);
-        cudaMemcpy(dvfield, hvfield, sizeof(cData) * DS,
+        memset(hvfield, 0, sizeof(float2) * DS);
+        cudaMemcpy(dvfield, hvfield, sizeof(float2) * DS,
                    cudaMemcpyHostToDevice);
 
         initParticles(particles, DIM, DIM);
 
         cudaGraphicsUnregisterResource(cuda_vbo_resource);
 
-        glBindBufferARB(GL_ARRAY_BUFFER_ARB, vbo);
-        glBufferDataARB(GL_ARRAY_BUFFER_ARB, sizeof(cData) * DS,
-                        particles, GL_DYNAMIC_DRAW_ARB);
-        glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(float2) * DS,
+                     particles, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
 
         cudaGraphicsGLRegisterBuffer(&cuda_vbo_resource, vbo, cudaGraphicsMapFlagsNone);
-
         break;
-    default: break;
+
+    default:
+        break;
     }
 }
 
-void click(int button, int updown, int x, int y) {
-    lastx = x; lasty = y;
+void click(int button, int updown, int x, int y)
+{
+    lastx = x;
+    lasty = y;
     clicked = !clicked;
 }
 
-void motion (int x, int y) {
+void motion(int x, int y)
+{
     // Convert motion coordinates to domain
     float fx = (lastx / (float)wWidth);
     float fy = (lasty / (float)wHeight);
     int nx = (int)(fx * DIM);
     int ny = (int)(fy * DIM);
 
-    if (clicked && nx < DIM-FR && nx > FR-1 && ny < DIM-FR && ny > FR-1) {
+    if (clicked && nx < DIM-FR && nx > FR-1 && ny < DIM-FR && ny > FR-1)
+    {
         int ddx = x - lastx;
         int ddy = y - lasty;
         fx = ddx / (float)wWidth;
@@ -192,13 +216,17 @@ void motion (int x, int y) {
         int spy = ny-FR;
         int spx = nx-FR;
         addForces(dvfield, DIM, DIM, spx, spy, FORCE * DT * fx, FORCE * DT * fy, FR);
-        lastx = x; lasty = y;
+        lastx = x;
+        lasty = y;
     }
+
     glutPostRedisplay();
 }
 
-void reshape(int x, int y) {
-    wWidth = x; wHeight = y;
+void reshape(int x, int y)
+{
+    wWidth = x;
+    wHeight = y;
     glViewport(0, 0, x, y);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
@@ -208,27 +236,42 @@ void reshape(int x, int y) {
     glutPostRedisplay();
 }
 
-void cleanup(void) {
+void cleanup(void)
+{
     cudaGraphicsUnregisterResource(cuda_vbo_resource);
 
-    unbindTexture();
-    deleteTexture();
+    unbind_texture();
+    delete_texture();
 
     // Free all host and device resources
-    free(hvfield); free(particles);
+    free(hvfield);
+    free(particles);
     cudaFree(dvfield);
-    cudaFree(vxfield); cudaFree(vyfield);
+    cudaFree(vxfield);
+    cudaFree(vyfield);
     cufftDestroy(planr2c);
     cufftDestroy(planc2r);
 
-    glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
-    glDeleteBuffersARB(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDeleteBuffers(1, &vbo);
+
+    sdkDeleteTimer(&timer);
+
+    if (g_bExitESC)
+    {
+        // cudaDeviceReset causes the driver to clean up all state. While
+        // not mandatory in normal operation, it is good practice.  It is also
+        // needed to ensure correct operation when the application is being
+        // profiled. Calling cudaDeviceReset causes all profile data to be
+        // flushed before the application exits
+        cudaDeviceReset();
+    }
 }
 
 int initGL(int *argc, char **argv)
 {
     glutInit(argc, argv);
-    glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
+    //glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE);
     glutInitWindowSize(wWidth, wHeight);
     glutCreateWindow("Compute Stable Fluids");
     glutDisplayFunc(display);
@@ -238,51 +281,55 @@ int initGL(int *argc, char **argv)
     glutReshapeFunc(reshape);
 
 
+    glewInit();
+
+    if (! glewIsSupported(
+                "GL_ARB_vertex_buffer_object"
+                ))
+    {
+        fprintf(stderr, "ERROR: Support for necessary OpenGL extensions missing.");
+        fflush(stderr);
+        return false;
+    }
+
     return true;
 }
 
-#include "helper.h"
 
-int main(int argc, char** argv) 
+int main(int argc, char **argv)
 {
-    int devID;
-    cudaDeviceProp deviceProps;
-    printf("[%s] - [OpenGL/CUDA simulation] starting...\n", sSDKname);
 
     // First initialize OpenGL context, so we can properly set the GL for CUDA.
     // This is necessary in order to achieve optimal performance with OpenGL/CUDA interop.
-    initGL(&argc, argv);
-
-    devID = cutGetMaxGflopsDeviceId();
-    cudaGLSetGLDevice(devID);
-
-    // get number of SMs on this GPU
-    cudaGetDeviceProperties(&deviceProps, devID);
-    printf("CUDA device [%s] has %d Multi-Processors\n",
-           deviceProps.name, deviceProps.multiProcessorCount);
+    if (false == initGL(&argc, argv))
+    {
+        exit(EXIT_SUCCESS);
+    }
 
     // Allocate and initialize host data
-    GLint bsize;
-    
-    hvfield = (cData*)malloc(sizeof(cData) * DS);
-    memset(hvfield, 0, sizeof(cData) * DS);
+
+    sdkCreateTimer(&timer);
+    sdkResetTimer(&timer);
+
+    hvfield = (float2 *)malloc(sizeof(float2) * DS);
+    memset(hvfield, 0, sizeof(float2) * DS);
 
     // Allocate and initialize device data
-    cudaMallocPitch((void**)&dvfield, &tPitch, sizeof(cData)*DIM, DIM);
-    
-    cudaMemcpy(dvfield, hvfield, sizeof(cData) * DS,
+    cudaMallocPitch((void **)&dvfield, &tPitch, sizeof(float2)*DIM, DIM);
+
+    cudaMemcpy(dvfield, hvfield, sizeof(float2) * DS,
                cudaMemcpyHostToDevice);
     // Temporary complex velocity field data
-    cudaMalloc((void**)&vxfield, sizeof(cData) * PDS);
-    cudaMalloc((void**)&vyfield, sizeof(cData) * PDS);
-    
-    setupTexture(DIM, DIM);
-    bindTexture();
-    
+    cudaMalloc((void **)&vxfield, sizeof(float2) * PDS);
+    cudaMalloc((void **)&vyfield, sizeof(float2) * PDS);
+
+    setup_texture(DIM, DIM);
+    bind_texture();
+
     // Create particle array
-    particles = (cData*)malloc(sizeof(cData) * DS);
-    memset(particles, 0, sizeof(cData) * DS);
-    
+    particles = (float2 *)malloc(sizeof(float2) * DS);
+    memset(particles, 0, sizeof(float2) * DS);
+
     initParticles(particles, DIM, DIM);
 
     // Create CUFFT transform plan configuration
@@ -293,23 +340,46 @@ int main(int argc, char** argv)
     cufftSetCompatibilityMode(planr2c, CUFFT_COMPATIBILITY_FFTW_PADDING);
     cufftSetCompatibilityMode(planc2r, CUFFT_COMPATIBILITY_FFTW_PADDING);
 
-    glGenBuffersARB(1, &vbo);
-    glBindBufferARB(GL_ARRAY_BUFFER_ARB, vbo);
-    glBufferDataARB(GL_ARRAY_BUFFER_ARB, sizeof(cData) * DS,
-                    particles, GL_DYNAMIC_DRAW_ARB);
 
-    glGetBufferParameterivARB(GL_ARRAY_BUFFER_ARB, GL_BUFFER_SIZE_ARB, &bsize);
-    if (bsize != (sizeof(cData) * DS))
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float2) * DS,
+                 particles, GL_DYNAMIC_DRAW);
+
+    GLint bsize;
+    glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &bsize);
+    if (bsize != (sizeof(float2) * DS))
         goto EXTERR;
-    glBindBufferARB(GL_ARRAY_BUFFER_ARB, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     cudaGraphicsGLRegisterBuffer(&cuda_vbo_resource, vbo, cudaGraphicsMapFlagsNone);
 
+#if defined (__APPLE__) || defined(MACOSX)
     atexit(cleanup);
+#else
+    glutCloseFunc(cleanup);
+#endif
     glutMainLoop();
+
+    // cudaDeviceReset causes the driver to clean up all state. While
+    // not mandatory in normal operation, it is good practice.  It is also
+    // needed to ensure correct operation when the application is being
+    // profiled. Calling cudaDeviceReset causes all profile data to be
+    // flushed before the application exits
+    cudaDeviceReset();
+    exit(EXIT_SUCCESS);
 
     return 0;
 
 EXTERR:
     printf("Failed to initialize GL extensions.\n");
+
+    // cudaDeviceReset causes the driver to clean up all state. While
+    // not mandatory in normal operation, it is good practice.  It is also
+    // needed to ensure correct operation when the application is being
+    // profiled. Calling cudaDeviceReset causes all profile data to be
+    // flushed before the application exits
+    cudaDeviceReset();
+    exit(EXIT_FAILURE);
 }

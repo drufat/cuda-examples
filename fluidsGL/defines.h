@@ -1,11 +1,7 @@
 #ifndef DEFINES_H
 #define DEFINES_H
 
-#ifdef __DEVICE_EMULATION__
-#define DIM    64        // Square size of solver domain
-#else
 #define DIM    512       // Square size of solver domain
-#endif
 #define DS    (DIM*DIM)  // Total domain size
 #define CPADW (DIM/2+1)  // Padded width for real->complex in-place FFT
 #define RPADW (2*(DIM/2+1))  // Padded width for real->complex in-place FFT
@@ -13,7 +9,7 @@
 
 #define DT     0.09f     // Delta T for interative solver
 #define VIS    0.0025f   // Viscosity constant
-#define FORCE (5.8f*DIM) // Force scale factor
+#define FORCE (5.8f*DIM) // Force scale factor 
 #define FR     4         // Force update radius
 
 #define TILEX 64 // Tile width
@@ -21,4 +17,4 @@
 #define TIDSX 64 // Tids in X
 #define TIDSY 4  // Tids in Y
 
-#endif // DEFINES_H
+#endif
