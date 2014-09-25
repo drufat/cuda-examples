@@ -9,8 +9,16 @@
 #include <cuda.h>
 #include <stdio.h>
 
-// Prototypes
-__global__ void helloWorld(char*);
+// Device kernel
+__global__ void
+helloWorld(char* str)
+{
+    // determine where in the thread grid we are
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // unmangle output
+    str[idx] += idx;
+}
 
 // Host function
 int
@@ -52,16 +60,3 @@ main(int argc, char** argv)
 
     return 0;
 }
-
-// Device kernel
-__global__ void
-helloWorld(char* str)
-{
-    // determine where in the thread grid we are
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-    // unmangle output
-    str[idx] += idx;
-}
-
-

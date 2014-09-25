@@ -1,8 +1,10 @@
 find_package(CUDA REQUIRED)
 
-cuda_add_executable(version version.cu)
+if(APPLE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libstdc++")
+endif()
 
-cuda_add_executable(sort sort.cu)
+cuda_add_executable(version version.cu)
 
 cuda_add_executable(device-vector device-vector.cu)
 
