@@ -16,13 +16,16 @@ cuda_add_library(fluidsGL_kernels
 )
 cuda_add_cufft_to_target(fluidsGL_kernels)
 
+# GLUT based
 add_executable(fluidsGL
     helper_timer.h
     fluidsGL_kernels.h
-    fluidsGL.cpp)
+    fluidsGL.cpp
+)
 target_link_libraries(fluidsGL fluidsGL_kernels ${OPENGL_LIBRARIES} ${GLEW_LIBRARIES} ${GLUT_LIBRARIES})
 set_target_properties(fluidsGL PROPERTIES COMPILE_FLAGS "-std=c++11")
 
+# Qt based
 find_package(Qt5Widgets)
 if(Qt5Widgets_FOUND)
     set(CMAKE_AUTOMOC ON)

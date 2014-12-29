@@ -7,7 +7,7 @@
 // Texture pitch
 size_t tPitch = 0;
 
-static void initParticles(float2 *p, int dx, int dy)
+void initParticles(float2 *p, int dx, int dy)
 {
     auto myrand = []() -> float {
             return qrand()/(float)RAND_MAX;};
@@ -26,8 +26,7 @@ void GLFluids::simulateFluids(void)
 {
     // simulate fluid
     advectVelocity(dvfield, (float *)vxfield, (float *)vyfield, DIM, RPADW, DIM, DT);
-    diffuseProject(vxfield, vyfield, CPADW, DIM, DT, VIS,
-                   planr2c, planc2r);
+    diffuseProject(vxfield, vyfield, CPADW, DIM, DT, VIS, planr2c, planc2r);
     updateVelocity(dvfield, (float *)vxfield, (float *)vyfield, DIM, RPADW, DIM);
     advectParticles(cuda_vbo_resource, dvfield, DIM, DIM, DT);
 }
