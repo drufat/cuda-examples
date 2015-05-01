@@ -1,7 +1,7 @@
-CUDA Fluid Simulation
+CUDA Examples
 ======================
 
-An example of fluid simulation using CUDA and CUFFT, with OpenGL rendering.
+Some CUDA, CUFFT and OpenGL examples.
 
 Prerequisites
 --------------
