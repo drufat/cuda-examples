@@ -9,8 +9,10 @@ size_t tPitch = 0;
 
 void initParticles(float2 *p, int dx, int dy)
 {
+
     auto myrand = []() -> float {
-            return qrand()/(float)RAND_MAX;};
+        return qrand()/(float)RAND_MAX;
+    };
 
     for (int i = 0; i < dy; i++)
     {
