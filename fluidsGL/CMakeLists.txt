@@ -2,6 +2,9 @@ find_package(CUDA REQUIRED)
 find_package(OpenGL 2.1 REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(GLUT REQUIRED)
+find_package(PkgConfig)
+pkg_check_modules(GLFW REQUIRED glfw3)
+
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -24,6 +27,14 @@ add_executable(fluidsGL
 )
 target_link_libraries(fluidsGL fluidsGL_kernels ${OPENGL_LIBRARIES} ${GLEW_LIBRARIES} ${GLUT_LIBRARIES})
 set_target_properties(fluidsGL PROPERTIES COMPILE_FLAGS "-std=c++11")
+
+# GLFW based
+add_executable(fluidsGLFW
+    fluidsGL_kernels.h
+    fluidsGLFW.cpp
+)
+target_link_libraries(fluidsGLFW fluidsGL_kernels ${OPENGL_LIBRARIES} ${GLEW_LIBRARIES} ${GLFW_LIBRARIES})
+set_target_properties(fluidsGLFW PROPERTIES COMPILE_FLAGS "-std=c++11")
 
 # Qt based
 find_package(Qt5Widgets)
