@@ -3,7 +3,7 @@
 
 #include "gears.h"
 
-int main(int argc, char* argv[]){
+int main(){
 
     SDL_Init(SDL_INIT_VIDEO);
 

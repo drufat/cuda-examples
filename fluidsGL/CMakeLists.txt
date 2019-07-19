@@ -1,5 +1,5 @@
 find_package(CUDA REQUIRED)
-find_package(OpenGL 2.1 REQUIRED)
+find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(GLUT REQUIRED)
 find_package(PkgConfig)
